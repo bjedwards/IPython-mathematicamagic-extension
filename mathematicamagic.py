@@ -497,6 +497,7 @@ class Pythonica(object):
 import tempfile
 from glob import glob
 from shutil import rmtree
+from xml.dom import minidom
 
 from IPython.core.displaypub import publish_display_data
 from IPython.core.magic import (Magics, magics_class, line_magic,
@@ -530,6 +531,38 @@ class MathematicaMagics(Magics):
         # Allow publish_display_data to be overridden for
         # testing purposes.
         self._publish_display_data = publish_display_data
+
+    def _fix_gnuplot_svg_size(self, image, size=None):
+        """
+        Mathematica SVGs do not have height/width attributes in the correct
+        place. Set as the actual plot size, which is sometimes hidden among the
+        xml
+
+        Parameters
+        ----------
+        image : str
+            SVG data.
+        size : tuple of int
+            Image width, height.
+
+        """
+        (svg,) = minidom.parseString(image).getElementsByTagName('svg')
+        try:
+            (rect,) = minidom.parseString(image).getElementsByTagName('image')
+        except:
+            rect = minidom.parseString(image).getElementsByTagName('rect')[1]
+
+        w = rect.getAttribute('width')
+        h = rect.getAttribute('height')
+
+        if size is not None:
+            width, height = size 
+        else:
+            width, height = int(w),int(h)
+
+        svg.setAttribute('width', '%dpx' % width)
+        svg.setAttribute('height', '%dpx' % height)
+        return svg.toxml()
 
     @skip_doctest
     @line_magic
@@ -686,6 +719,7 @@ class MathematicaMagics(Magics):
             size = tuple(map(int,args.size.split(',')))
             self._mathematica.plot_size=size
         else:
+            size = None 
             self._mathematica.plot_size=None
 
         plot_dir = tempfile.mkdtemp()
@@ -722,6 +756,8 @@ class MathematicaMagics(Magics):
 
         plot_mime_type = _mimetypes.get(plot_format, 'image/png')
         for image in images:
+            if self._mathematica.plot_format == 'svg':
+                image = self._fix_gnuplot_svg_size(image,size=size)
             display_data.append((key, {plot_mime_type: image}))
 
         if args.output:
